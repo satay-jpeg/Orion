@@ -96,8 +96,11 @@ def rba(series_code: str, start: str) -> pd.Series:
         raise SourceError("RBA F2 layout changed: no 'Series ID' row")
     df = pd.read_csv(io.StringIO("\n".join(lines[sid:])))
     df = df.rename(columns={df.columns[0]: "date"})
-    if series_code not in df.columns:
-        raise SourceError(f"RBA F2 has no {series_code}")
+    # The daily F2 table suffixes its IDs with "D" (e.g. FCMYGBAG2D); accept either form.
+    col = next((c for c in (series_code, series_code + "D") if c in df.columns), None)
+    if col is None:
+        raise SourceError(f"RBA F2 has no {series_code}; columns={[c for c in df.columns if 'GBAG' in str(c)][:6]}")
+    series_code = col
     df["date"] = pd.to_datetime(df["date"], dayfirst=True, errors="coerce", format="mixed")
     s = _clean(df.dropna(subset=["date"]).set_index("date")[series_code], series_code)
     return s[s.index >= pd.Timestamp(start)]

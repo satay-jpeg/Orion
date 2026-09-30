@@ -105,6 +105,7 @@ def cmd_seed(db: DB):
 def cmd_daily(db: DB, full: bool, trade: bool, dry_run: bool):
     run = Run(db, "daily")
     try:
+        cmd_seed(db)  # idempotent: guarantees instruments / data_sources exist before anything references them
         prices, macro, _ = load_data(run)
         run.step("ingest", detail={"prices": len(prices), "macro": len(macro)})
         panel, aligned, frames, regime = compute(prices, macro)
@@ -170,6 +171,9 @@ def cmd_daily(db: DB, full: bool, trade: bool, dry_run: bool):
         sys.exit(1)
 
 
+KEEP_BACKTESTS = 4
+
+
 def cmd_backtest(db: DB):
     run = Run(db, "backtest")
     try:
@@ -195,6 +199,11 @@ def cmd_backtest(db: DB):
                                        "return_pct": t.return_pct, "bars": int(t.bars), "exit_reason": t.exit_reason}
                                       for t in tr.itertuples()])
         run.step("store", detail={"run_id": rid, "oos_sharpe": res["metrics_out_of_sample"].get("sharpe")})
+        # Housekeeping: keep only the most recent KEEP_BACKTESTS runs (series + trades cascade-delete).
+        old = db.select("backtest_runs", {"select": "id", "order": "created_at.desc", "offset": str(KEEP_BACKTESTS)})
+        if old:
+            db.delete("backtest_runs", {"id": "in.(" + ",".join(o["id"] for o in old) + ")"})
+            run.step("prune", detail={"deleted_backtest_runs": len(old)})
         run.finish("success", freshness(prices, macro))
     except Exception as e:  # noqa: BLE001
         run.step("error", "error", _redact(f"{type(e).__name__}: {str(e)[:300]}"))

@@ -45,8 +45,11 @@ class DB:
         if self.local:
             self.out.mkdir(parents=True, exist_ok=True)
         self.s = requests.Session()
-        self.s.headers.update({"apikey": self.key, "Authorization": f"Bearer {self.key}",
-                               "Content-Type": "application/json"})
+        self.s.headers.update({"apikey": self.key, "Content-Type": "application/json"})
+        # Legacy service_role keys are JWTs and also go in Authorization. New-style secret keys
+        # (sb_secret_...) must only be sent as `apikey`; Supabase's gateway handles the rest.
+        if self.key.startswith("eyJ"):
+            self.s.headers["Authorization"] = f"Bearer {self.key}"
 
     def upsert(self, table: str, rows: list[dict], on_conflict: str | None = None, chunk: int = 500) -> int:
         rows = [_clean(r) for r in rows]
@@ -88,6 +91,16 @@ class DB:
         r = self.s.patch(f"{self.url}/rest/v1/{table}", params=params, data=json.dumps(_clean(values)), timeout=60)
         if r.status_code >= 300:
             raise RuntimeError(f"update {table} -> {r.status_code}: {r.text[:400]}")
+
+    def delete(self, table: str, params: dict) -> None:
+        """Delete rows matching PostgREST filters, e.g. {"id": "in.(a,b)"}. Never called without a filter."""
+        if not params:
+            raise ValueError("refusing to delete without a filter")
+        if self.local:
+            return
+        r = self.s.delete(f"{self.url}/rest/v1/{table}", params=params, timeout=60)
+        if r.status_code >= 300:
+            raise RuntimeError(f"delete {table} -> {r.status_code}: {r.text[:400]}")
 
     def select(self, table: str, params: dict | None = None) -> list[dict]:
         if self.local:
