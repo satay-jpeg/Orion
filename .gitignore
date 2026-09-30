@@ -1,0 +1,15 @@
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+engine/out/
+.venv/
+# node
+web/node_modules/
+web/.next/
+web/.env*.local
+web/tsconfig.tsbuildinfo
+# secrets
+.env
+*.pem
+demo/data/

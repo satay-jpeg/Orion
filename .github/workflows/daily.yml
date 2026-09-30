@@ -1,0 +1,53 @@
+name: ORION daily pipeline + paper-trading agent
+
+on:
+  schedule:
+    # 23:20 UTC Sun-Thu = 07:20 SGT Mon-Fri, after the 17:00 New York close and the
+    # energy CFD daily break. Friday's close is traded on the Sunday-evening run.
+    - cron: "20 23 * * 0-4"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "full = rewrite full history; dry = agent does not send orders"
+        type: choice
+        options: [normal, full, dry, no-trade]
+        default: normal
+
+concurrency:
+  group: orion-daily
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: engine
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OANDA_API_TOKEN: ${{ secrets.OANDA_API_TOKEN }}
+      OANDA_ACCOUNT_ID: ${{ secrets.OANDA_ACCOUNT_ID }}
+      OANDA_ENV: practice
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: engine/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Run pipeline
+        run: |
+          case "${{ github.event.inputs.mode }}" in
+            full)     python -m orion.pipeline daily --full ;;
+            dry)      python -m orion.pipeline daily --dry-run ;;
+            no-trade) python -m orion.pipeline daily --no-trade ;;
+            *)        python -m orion.pipeline daily ;;
+          esac
